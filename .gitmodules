@@ -1,0 +1,4 @@
+[submodule "LunarFonts"]
+	path = LunarFonts
+	url = git@github.com:Relfos/LunarFonts.git
+	branch = master
