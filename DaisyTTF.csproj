@@ -7,4 +7,14 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <Compile Remove="LunarFonts\**" />
+    <EmbeddedResource Remove="LunarFonts\**" />
+    <None Remove="LunarFonts\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="LunarFonts\LunarFonts\LunarFonts.csproj" />
+  </ItemGroup>
+
 </Project>
