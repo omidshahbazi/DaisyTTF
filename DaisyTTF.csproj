@@ -14,7 +14,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="LunarFonts\LunarFonts\LunarFonts.csproj" />
+    <PackageReference Include="LunarLabs.Fonts" Version="1.0.3" />
   </ItemGroup>
 
 </Project>

@@ -27,35 +27,33 @@ namespace DaisyTTF
 			if (!File.Exists(arguments.FontFilepath))
 				throw new FileNotFoundException(arguments.FontFilepath);
 
-			//arguments.AddWidth = true;
-			//arguments.DebugView = true;
+			arguments.AddWidth = true;
+			arguments.DebugView = true;
 
 			Font font = new Font(File.ReadAllBytes(arguments.FontFilepath));
-			float correctPixelScale = GetCorrectPixelScale(font, arguments.Size);
 
 			string variableName = Path.GetFileNameWithoutExtension(arguments.FontFilepath);
 			variableName = variableName.Replace(" ", string.Empty);
 			variableName = variableName.Replace('-', '_');
 			variableName = $"Font_{variableName}_{arguments.Size}_{arguments.BitsPerPixel}BPP";
 
-			string output = BuildBitmapData(variableName, font, correctPixelScale, arguments);
+			string output = BuildBitmapData(variableName, font, arguments);
 
 			Console.Write(output);
 		}
 
-		private static string BuildBitmapData(string variableName, Font font, float correctPixelScale, Arguments arguments)
+		private static string BuildBitmapData(string variableName, Font font, Arguments arguments)
 		{
 			string dataVariableName = $"{variableName}_DATA";
 
 			StringBuilder output = new StringBuilder();
 			output.AppendLine($"static const uint{DATA_BIT_COUNT} {dataVariableName}[] = {{");
 
-			float scale = font.ScaleInPixels(correctPixelScale);
 			uint maxWidth = 0;
 			for (char c = FIRST_CHARACTER; c <= LAST_CHARACTER; ++c)
 			{
 				uint width;
-				AppendGlyphData(output, font, c, scale, arguments, out width);
+				AppendGlyphData(output, font, c, arguments, out width);
 
 				if (width > maxWidth)
 					maxWidth = width;
@@ -70,11 +68,12 @@ namespace DaisyTTF
 			return output.ToString();
 		}
 
-		private static void AppendGlyphData(StringBuilder output, Font font, char c, float scale, Arguments arguments, out uint width)
+		private static void AppendGlyphData(StringBuilder output, Font font, char c, Arguments arguments, out uint width)
 		{
-			FontGlyph glyph = font.RenderGlyph(c, scale);
+			FontGlyph glyph = font.RenderGlyph(c, font.ScaleInPixels(arguments.Size));
 			GlyphBitmap image = glyph.Image;
-			width = (uint)image.Width;
+
+			width = (uint)glyph.xAdvance;
 
 			output.Append("\t");
 
@@ -139,22 +138,31 @@ namespace DaisyTTF
 			Debug.Assert(totalWrittenElementCount == elementCountPerRow * arguments.Size);
 		}
 
-		private static float GetCorrectPixelScale(Font font, uint size)
+		private static byte[,] GetGlyphPixelData(Font font, char c, Arguments arguments)
 		{
-			float correctPixelScale = size * 1.6F;
-			while (true)
-			{
-				FontGlyph glyph = font.RenderGlyph('Q', font.ScaleInPixels(correctPixelScale));
-				if (glyph.Image.Height > size)
-				{
-					correctPixelScale -= 0.01F;
-					continue;
-				}
+			FontGlyph glyph = font.RenderGlyph(c, font.ScaleInPixels(arguments.Size));
+			GlyphBitmap image = glyph.Image;
 
-				break;
+			byte[,] canvas = new byte[arguments.Size, arguments.Size];
+
+			int startX = glyph.xOfs;
+			int startY = (int)arguments.Size + glyph.yOfs;
+
+			for (int iy = 0; iy < image.Height; iy++)
+			{
+				for (int ix = 0; ix < image.Width; ix++)
+				{
+					int canvasX = startX + ix;
+					int canvasY = startY + iy;
+
+					if (canvasX >= 0 && canvasX < arguments.Size && canvasY >= 0 && canvasY < arguments.Size)
+					{
+						canvas[canvasY, canvasX] = image.Pixels[ix + (iy * image.Width)];
+					}
+				}
 			}
 
-			return correctPixelScale;
+			return canvas;
 		}
 
 		private static Arguments GetArguments(string[] args)
