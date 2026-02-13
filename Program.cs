@@ -1,30 +1,146 @@
 ﻿using LunarLabs.Fonts;
+using System.Diagnostics;
 using System.Text;
-using System.Xml.Linq;
 
 namespace DaisyTTF
 {
 	class Program
 	{
+		private struct Arguments
+		{
+			public string FontFilepath;
+			public uint Size;
+			public uint BitsPerPixel;
+			public bool AddWidth;
+			public bool DebugView;
+		}
+
 		const char FIRST_CHARACTER = ' ';
 		const char LAST_CHARACTER = '~';
+		const uint DATA_BIT_COUNT = sizeof(ulong) * 8;
 
-		static void Main(string[] args)
+		private static void Main(string[] args)
 		{
-			args = new string[] { "E:/DUBAI-MEDIUM.ttf", "32" };
+			args = new string[] { "Z:/impact.ttf", "64", "2" };
 
-			if (args.Length != 2)
-				throw new ArgumentException();
+			Arguments arguments = GetArguments(args);
+			if (!File.Exists(arguments.FontFilepath))
+				throw new FileNotFoundException(arguments.FontFilepath);
 
-			string ttfFilepath = args[0];
-			if (!File.Exists(ttfFilepath))
-				throw new FileNotFoundException(ttfFilepath);
+			//arguments.AddWidth = true;
+			//arguments.DebugView = true;
 
-			int size = Convert.ToInt32(args[1]);
-			size = Math.Min(32, Math.Max(8, size));
+			Font font = new Font(File.ReadAllBytes(arguments.FontFilepath));
+			float correctPixelScale = GetCorrectPixelScale(font, arguments.Size);
 
-			Font font = new Font(File.ReadAllBytes(ttfFilepath));
+			string variableName = Path.GetFileNameWithoutExtension(arguments.FontFilepath);
+			variableName = variableName.Replace(" ", string.Empty);
+			variableName = variableName.Replace('-', '_');
+			variableName = $"Font_{variableName}_{arguments.Size}_{arguments.BitsPerPixel}BPP";
 
+			string output = BuildBitmapData(variableName, font, correctPixelScale, arguments);
+
+			Console.Write(output);
+		}
+
+		private static string BuildBitmapData(string variableName, Font font, float correctPixelScale, Arguments arguments)
+		{
+			string dataVariableName = $"{variableName}_DATA";
+
+			StringBuilder output = new StringBuilder();
+			output.AppendLine($"static const uint{DATA_BIT_COUNT} {dataVariableName}[] = {{");
+
+			float scale = font.ScaleInPixels(correctPixelScale);
+			uint maxWidth = 0;
+			for (char c = FIRST_CHARACTER; c <= LAST_CHARACTER; ++c)
+			{
+				uint width;
+				AppendGlyphData(output, font, c, scale, arguments, out width);
+
+				if (width > maxWidth)
+					maxWidth = width;
+			}
+
+			output.AppendLine("};");
+
+			output.AppendLine("");
+
+			output.AppendLine($"static const Font {variableName} = {{{maxWidth}, {arguments.Size}, {dataVariableName}, 1, {arguments.BitsPerPixel}, '{FIRST_CHARACTER}', '{LAST_CHARACTER}', {arguments.AddWidth.ToString().ToLower()}}};");
+
+			return output.ToString();
+		}
+
+		private static void AppendGlyphData(StringBuilder output, Font font, char c, float scale, Arguments arguments, out uint width)
+		{
+			FontGlyph glyph = font.RenderGlyph(c, scale);
+			GlyphBitmap image = glyph.Image;
+			width = (uint)image.Width;
+
+			output.Append("\t");
+
+			if (arguments.AddWidth)
+				output.Append($"0x{width.ToString("X2")}, ");
+
+			uint pixelCountPerElement = Math.Min(arguments.Size, DATA_BIT_COUNT / arguments.BitsPerPixel);
+			uint elementCountPerRow = Math.Max(1, arguments.Size / (DATA_BIT_COUNT / arguments.BitsPerPixel));
+
+			uint totalWrittenElementCount = 0;
+
+			for (uint y = 0; y < arguments.Size; ++y)
+			{
+				int indexY = (int)y - (glyph.yOfs + (int)arguments.Size);
+
+				uint writtenBitCount = 0;
+				uint writtenElementCount = 0;
+				ulong data = 0;
+				void flush()
+				{
+					if (arguments.DebugView)
+						output.Append($"0b{data.ToString($"B64")}, ");
+					else
+						output.Append($"0x{data.ToString($"X16")}, ");
+
+					writtenBitCount = 0;
+					data = 0;
+
+					++writtenElementCount;
+					++totalWrittenElementCount;
+				}
+
+				for (uint x = 0; x < arguments.Size; ++x)
+				{
+					int indexX = (int)x - glyph.xOfs;
+
+					if (0 <= indexX && indexX < image.Width &&
+						0 <= indexY && indexY < image.Height)
+					{
+						byte pixelValue = image.Pixels[indexX + (indexY * image.Width)];
+
+						byte b = PixelValueToBit(pixelValue, (int)arguments.BitsPerPixel);
+
+						data |= ((ulong)b << (int)(x * arguments.BitsPerPixel));
+					}
+
+					writtenBitCount += arguments.BitsPerPixel;
+
+					if ((x + 1) % pixelCountPerElement == 0)
+						flush();
+				}
+
+				for (; writtenElementCount < elementCountPerRow; ++writtenElementCount)
+					flush();
+
+				if (arguments.DebugView)
+					output.AppendLine();
+			}
+
+			output.AppendLine($"// [{c}]");
+
+			Debug.Assert(totalWrittenElementCount == elementCountPerRow * arguments.Size);
+		}
+
+		private static float GetCorrectPixelScale(Font font, uint size)
+		{
 			float correctPixelScale = size * 1.6F;
 			while (true)
 			{
@@ -38,65 +154,44 @@ namespace DaisyTTF
 				break;
 			}
 
-			string variableName = Path.GetFileNameWithoutExtension(ttfFilepath);
-			variableName = variableName.Replace(" ", string.Empty);
-			variableName = variableName.Replace('-', '_');
-			variableName += $"_{size}";
+			return correctPixelScale;
+		}
 
-			string dataVariableName = $"{variableName}_DATA";
+		private static Arguments GetArguments(string[] args)
+		{
+			if (args.Length != 3)
+				throw new ArgumentException();
 
-			StringBuilder output = new StringBuilder();
-			output.AppendLine($"static const uint32 {dataVariableName}[] = {{");
+			Arguments arguments = new Arguments();
 
-			float scale = font.ScaleInPixels(correctPixelScale);
-			int maxWidth = 0;
-			for (char c = FIRST_CHARACTER; c <= LAST_CHARACTER; ++c)
+			arguments.FontFilepath = args[0];
+
+			arguments.Size = Convert.ToUInt32(args[1]);
+			arguments.Size = Math.Min(64, Math.Max(10, arguments.Size));
+
+			arguments.BitsPerPixel = Convert.ToUInt32(args[2]);
+			arguments.BitsPerPixel = Math.Min(4, Math.Max(1, arguments.BitsPerPixel));
+
+			return arguments;
+		}
+
+		private static byte PixelValueToBit(byte pixelValue, int bitsPerPixel)
+		{
+			if (bitsPerPixel == 1)
 			{
-				FontGlyph glyph = font.RenderGlyph(c, scale);
-				GlyphBitmap image = glyph.Image;
-
-				output.Append("\t");
-
-				for (int y = 0; y < size; ++y)
-				{
-					int indexY = y - (glyph.yOfs + size);
-
-					int rowData = 0;
-
-					if (indexY >= 0)
-						for (int x = 0; x < size; ++x)
-						{
-							int indexX = x - glyph.xOfs;
-
-							if (indexX < 0)
-								continue;
-							if (image.Height <= indexY)
-								break;
-							if (image.Width <= indexX)
-								break;
-
-							if (image.Width > maxWidth)
-								maxWidth = image.Width;
-
-							if (image.Pixels[indexX + (indexY * image.Width)] < 250)
-								continue;
-
-							rowData |= (1 << x);
-						}
-
-					output.Append($"0x{rowData.ToString("X8")}, ");
-				}
-
-				output.AppendLine($"// [{c}]");
+				return (byte)(pixelValue < 128 ? 0 : 1);
 			}
 
-			output.AppendLine("};");
+			if (bitsPerPixel == 2)
+			{
+				byte[] Compositions = new byte[] { 0b00, 0b10, 0b11, 0b01 };
 
-			output.AppendLine("");
+				int index = (int)(pixelValue / 85.0);
 
-			output.AppendLine($"static const Font Font_{variableName} = {{{maxWidth}, {size}, {dataVariableName}}};");
+				return Compositions[index];
+			}
 
-			Console.Write(output.ToString());
+			return 0;
 		}
 	}
 }
