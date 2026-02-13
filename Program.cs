@@ -1,6 +1,7 @@
 ﻿using LunarLabs.Fonts;
 using System.Diagnostics;
 using System.Text;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace DaisyTTF
 {
@@ -11,7 +12,7 @@ namespace DaisyTTF
 			public string FontFilepath;
 			public uint Size;
 			public uint BitsPerPixel;
-			public bool AddWidth;
+			public bool AddGlyphData;
 			public bool DebugView;
 		}
 
@@ -21,14 +22,14 @@ namespace DaisyTTF
 
 		private static void Main(string[] args)
 		{
-			args = new string[] { "Z:/impact.ttf", "64", "2" };
+			args = new string[] { "Z:/calibrib.ttf", "16", "2" };
 
 			Arguments arguments = GetArguments(args);
 			if (!File.Exists(arguments.FontFilepath))
 				throw new FileNotFoundException(arguments.FontFilepath);
 
-			arguments.AddWidth = true;
-			arguments.DebugView = true;
+			arguments.AddGlyphData = true;
+			//arguments.DebugView = true;
 
 			Font font = new Font(File.ReadAllBytes(arguments.FontFilepath));
 
@@ -63,7 +64,7 @@ namespace DaisyTTF
 
 			output.AppendLine("");
 
-			output.AppendLine($"static const Font {variableName} = {{{maxWidth}, {arguments.Size}, {dataVariableName}, 1, {arguments.BitsPerPixel}, '{FIRST_CHARACTER}', '{LAST_CHARACTER}', {arguments.AddWidth.ToString().ToLower()}}};");
+			output.AppendLine($"static const Font {variableName} = {{{maxWidth}, {arguments.Size}, {dataVariableName}, 1, {arguments.BitsPerPixel}, '{FIRST_CHARACTER}', '{LAST_CHARACTER}', {arguments.AddGlyphData.ToString().ToLower()}}};");
 
 			return output.ToString();
 		}
@@ -77,8 +78,30 @@ namespace DaisyTTF
 
 			output.Append("\t");
 
-			if (arguments.AddWidth)
-				output.Append($"0x{width.ToString("X2")}, ");
+			if (arguments.AddGlyphData)
+			{
+				ulong glyphData = 0;
+
+				int bitOffset = 0;
+
+				glyphData |= (width & 0xFF) << bitOffset;
+				bitOffset += sizeof(byte) * 8;
+
+				int xOfs = glyph.xOfs;
+				glyphData |= ((ulong)xOfs & 0xFF) << bitOffset;
+				bitOffset += sizeof(byte) * 8;
+
+				int yOfs = (int)(glyph.yOfs + arguments.Size);
+				glyphData |= ((ulong)yOfs & 0xFF) << bitOffset;
+				bitOffset += sizeof(byte) * 8;
+
+				Debug.Assert(bitOffset < DATA_BIT_COUNT);
+
+				if (arguments.DebugView)
+					output.AppendLine($"0b{glyphData.ToString($"B64")}, ");
+				else
+					output.Append($"0x{glyphData.ToString($"X16")}, ");
+			}
 
 			uint pixelCountPerElement = Math.Min(arguments.Size, DATA_BIT_COUNT / arguments.BitsPerPixel);
 			uint elementCountPerRow = Math.Max(1, arguments.Size / (DATA_BIT_COUNT / arguments.BitsPerPixel));
@@ -110,10 +133,19 @@ namespace DaisyTTF
 				{
 					int indexX = (int)x - glyph.xOfs;
 
-					if (0 <= indexX && indexX < image.Width &&
-						0 <= indexY && indexY < image.Height)
+					//if (0 <= indexX && indexX < image.Width &&
+					//	0 <= indexY && indexY < image.Height)
+					//{
+					//	byte pixelValue = image.Pixels[indexX + (indexY * image.Width)];
+
+					//	byte b = PixelValueToBit(pixelValue, (int)arguments.BitsPerPixel);
+
+					//	data |= ((ulong)b << (int)(x * arguments.BitsPerPixel));
+					//}
+					if (x < image.Width &&
+						y < image.Height)
 					{
-						byte pixelValue = image.Pixels[indexX + (indexY * image.Width)];
+						byte pixelValue = image.Pixels[x + (y * image.Width)];
 
 						byte b = PixelValueToBit(pixelValue, (int)arguments.BitsPerPixel);
 
@@ -175,7 +207,7 @@ namespace DaisyTTF
 			arguments.FontFilepath = args[0];
 
 			arguments.Size = Convert.ToUInt32(args[1]);
-			arguments.Size = Math.Min(64, Math.Max(10, arguments.Size));
+			arguments.Size = Math.Min(64, Math.Max(8, arguments.Size));
 
 			arguments.BitsPerPixel = Convert.ToUInt32(args[2]);
 			arguments.BitsPerPixel = Math.Min(4, Math.Max(1, arguments.BitsPerPixel));
