@@ -4,7 +4,7 @@ using System.Drawing;
 using System.Text;
 using Font = LunarLabs.Fonts.Font;
 
-namespace DaisyTTF
+namespace ImageToBitmap
 {
 	class Program
 	{
@@ -15,22 +15,26 @@ namespace DaisyTTF
 			public uint BitsPerPixel;
 			public bool AddGlyphData;
 			public bool DebugView;
+			public char FirstCharacter;
+			public char LastCharacter;
 		}
 
-		const char FIRST_CHARACTER = ' ';
-		const char LAST_CHARACTER = '~';
 		const uint DATA_BIT_COUNT = sizeof(ulong) * 8;
 
 		private static void Main(string[] args)
 		{
-			args = new string[] { "Z:/Pedal.png", "32", "4" };
-			//args = new string[] { "Z:/calibrib.ttf", "32", "2" };
+			//args = new string[] { "Z:/Projects/Line1/Assets/Output.png", "48", "4" };
+			args = new string[] { "Z:/Projects/Line1/Assets/Assets.ttf", "32", "2" };
+			//args = new string[] { "Z:/calibrib.ttf", "48", "2" };
 
 			Arguments arguments = GetArguments(args);
 			if (!File.Exists(arguments.Path))
 				throw new FileNotFoundException(arguments.Path);
 
-			//arguments.DebugView = true;
+			arguments.FirstCharacter = (char)((int)'a' + 0);
+			arguments.LastCharacter = (char)((int)arguments.FirstCharacter + 19);
+
+			arguments.DebugView = true;
 
 			string output = string.Empty;
 
@@ -60,8 +64,8 @@ namespace DaisyTTF
 
 				BuildHeader(output, dataVariableName);
 
-				uint pixelCountPerElement = Math.Min(arguments.Size, DATA_BIT_COUNT / arguments.BitsPerPixel);
-				uint elementCountPerRow = Math.Max(1, arguments.Size / (DATA_BIT_COUNT / arguments.BitsPerPixel));
+				uint pixelCountPerElement = Math.Min((uint)bitmap.Width, DATA_BIT_COUNT / arguments.BitsPerPixel);
+				uint elementCountPerRow = Math.Max(1, (uint)Math.Ceiling((float)bitmap.Width / (DATA_BIT_COUNT / arguments.BitsPerPixel)));
 				uint bitsPerChannel = Math.Min(2, arguments.BitsPerPixel);
 
 				uint totalWrittenElementCount = 0;
@@ -163,7 +167,7 @@ namespace DaisyTTF
 				//AppendGlyphData(output, font, 'C', arguments, out width);
 
 				uint maxWidth = 0;
-				for (char c = FIRST_CHARACTER; c <= LAST_CHARACTER; ++c)
+				for (char c = arguments.FirstCharacter; c <= arguments.LastCharacter; ++c)
 				{
 					uint width;
 					AppendGlyphData(output, font, c, arguments, out width);
@@ -174,7 +178,7 @@ namespace DaisyTTF
 
 				BuildFooter(output);
 
-				output.AppendLine($"static const Font {variableName} = {{{maxWidth}, {arguments.Size}, {dataVariableName}, 1, {arguments.BitsPerPixel}, '{FIRST_CHARACTER}', '{LAST_CHARACTER}', {arguments.AddGlyphData.ToString().ToLower()}}};");
+				output.AppendLine($"static const Font {variableName} = {{{maxWidth}, {arguments.Size}, {dataVariableName}, 1, {arguments.BitsPerPixel}, (char){(int)arguments.FirstCharacter}, (char){(int)arguments.LastCharacter}, {arguments.AddGlyphData.ToString().ToLower()}}};");
 
 				return output.ToString();
 			}
@@ -214,8 +218,8 @@ namespace DaisyTTF
 						output.Append($"0x{glyphData.ToString($"X16")}, ");
 				}
 
-				uint pixelCountPerElement = Math.Min(arguments.Size, DATA_BIT_COUNT / arguments.BitsPerPixel);
-				uint elementCountPerRow = Math.Max(1, arguments.Size / (DATA_BIT_COUNT / arguments.BitsPerPixel));
+				uint pixelCountPerElement = Math.Min((uint)width, DATA_BIT_COUNT / arguments.BitsPerPixel);
+				uint elementCountPerRow = Math.Max(1, (uint)Math.Ceiling((float)arguments.Size / (DATA_BIT_COUNT / arguments.BitsPerPixel)));
 
 				uint totalWrittenElementCount = 0;
 
@@ -266,7 +270,7 @@ namespace DaisyTTF
 						output.AppendLine();
 				}
 
-				output.Append($"// [{c}]");
+				output.Append($"// [{(int)c} '{c}']");
 
 				if (arguments.AddGlyphData)
 					output.Append($" Width [{width}] Offset [{xOfs}, {yOfs}]");
@@ -317,6 +321,9 @@ namespace DaisyTTF
 
 			arguments.BitsPerPixel = Convert.ToUInt32(args[2]);
 			arguments.BitsPerPixel = Math.Min(4, Math.Max(1, arguments.BitsPerPixel));
+
+			arguments.FirstCharacter = ' ';
+			arguments.LastCharacter = '~';
 
 			return arguments;
 		}
