@@ -15,8 +15,7 @@ namespace ImageToBitmap
 			public uint BitsPerPixel;
 			public bool AddGlyphData;
 			public bool DebugView;
-			public char FirstCharacter;
-			public char LastCharacter;
+			public string Glyphs;
 		}
 
 		const uint DATA_BIT_COUNT = sizeof(ulong) * 8;
@@ -24,17 +23,14 @@ namespace ImageToBitmap
 		private static void Main(string[] args)
 		{
 			//args = new string[] { "Z:/Projects/Line1/Assets/Output.png", "48", "4" };
-			args = new string[] { "Z:/Projects/Line1/Assets/Assets.ttf", "32", "2" };
-			//args = new string[] { "Z:/calibrib.ttf", "48", "2" };
+			args = new string[] { "Z:/Projects/Line1/Assets/Assets.ttf", "38", "2", "abcdefghijklmnopqrstuvwxyzAB" };
+			//args = new string[] { "Z:/calibrib.ttf", "20", "2", " ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789:!#%()*+,-_.[]{}\\|" };
 
 			Arguments arguments = GetArguments(args);
 			if (!File.Exists(arguments.Path))
 				throw new FileNotFoundException(arguments.Path);
 
-			arguments.FirstCharacter = (char)((int)'a' + 0);
-			arguments.LastCharacter = (char)((int)arguments.FirstCharacter + 19);
-
-			arguments.DebugView = true;
+			//arguments.DebugView = true;
 
 			string output = string.Empty;
 
@@ -167,7 +163,7 @@ namespace ImageToBitmap
 				//AppendGlyphData(output, font, 'C', arguments, out width);
 
 				uint maxWidth = 0;
-				for (char c = arguments.FirstCharacter; c <= arguments.LastCharacter; ++c)
+				foreach (char c in arguments.Glyphs)
 				{
 					uint width;
 					AppendGlyphData(output, font, c, arguments, out width);
@@ -178,7 +174,12 @@ namespace ImageToBitmap
 
 				BuildFooter(output);
 
-				output.AppendLine($"static const Font {variableName} = {{{maxWidth}, {arguments.Size}, {dataVariableName}, 1, {arguments.BitsPerPixel}, (char){(int)arguments.FirstCharacter}, (char){(int)arguments.LastCharacter}, {arguments.AddGlyphData.ToString().ToLower()}}};");
+				string glyphs = arguments.Glyphs;
+				glyphs = glyphs.Replace("\\", "\\\\");
+				glyphs = glyphs.Replace("\'", "\\\'");
+				glyphs = glyphs.Replace("\"", "\\\"");
+
+				output.AppendLine($"static const Font {variableName} = {{{maxWidth}, {arguments.Size}, {dataVariableName}, 1, {arguments.BitsPerPixel}, {arguments.AddGlyphData.ToString().ToLower()}, \"{glyphs}\"}};");
 
 				return output.ToString();
 			}
@@ -188,12 +189,15 @@ namespace ImageToBitmap
 				FontGlyph glyph = font.RenderGlyph(c, font.ScaleInPixels(arguments.Size));
 				GlyphBitmap image = glyph.Image;
 
-				width = (uint)glyph.xAdvance;
+				uint advance = (uint)glyph.xAdvance;
 
 				output.Append("\t");
 
 				int xOfs = glyph.xOfs;
 				int yOfs = (int)(glyph.yOfs + arguments.Size);
+
+				width = (uint)image.Width;
+				uint height = (uint)Math.Min(arguments.Size, image.Height);
 
 				if (arguments.AddGlyphData)
 				{
@@ -201,13 +205,19 @@ namespace ImageToBitmap
 
 					int bitOffset = 0;
 
-					glyphData |= (width & 0xFF) << bitOffset;
+					glyphData |= (advance & 0xFF) << bitOffset;
 					bitOffset += sizeof(byte) * 8;
 
 					glyphData |= ((ulong)xOfs & 0xFF) << bitOffset;
 					bitOffset += sizeof(byte) * 8;
 
 					glyphData |= ((ulong)yOfs & 0xFF) << bitOffset;
+					bitOffset += sizeof(byte) * 8;
+
+					glyphData |= ((ulong)width & 0xFF) << bitOffset;
+					bitOffset += sizeof(byte) * 8;
+
+					glyphData |= ((ulong)height & 0xFF) << bitOffset;
 					bitOffset += sizeof(byte) * 8;
 
 					Debug.Assert(bitOffset < DATA_BIT_COUNT);
@@ -244,7 +254,7 @@ namespace ImageToBitmap
 						++totalWrittenElementCount;
 					}
 
-					for (uint x = 0; x < arguments.Size; ++x)
+					for (uint x = 0; x < width; ++x)
 					{
 						int indexX = (int)x - glyph.xOfs;
 
@@ -273,7 +283,7 @@ namespace ImageToBitmap
 				output.Append($"// [{(int)c} '{c}']");
 
 				if (arguments.AddGlyphData)
-					output.Append($" Width [{width}] Offset [{xOfs}, {yOfs}]");
+					output.Append($" Advance [{advance}] Offset [{xOfs}, {yOfs}] Dimensions [{width}, {height}]");
 
 				output.AppendLine();
 
@@ -309,7 +319,7 @@ namespace ImageToBitmap
 
 		private static Arguments GetArguments(string[] args)
 		{
-			if (args.Length != 3)
+			if (args.Length != 4)
 				throw new ArgumentException();
 
 			Arguments arguments = new Arguments();
@@ -322,8 +332,7 @@ namespace ImageToBitmap
 			arguments.BitsPerPixel = Convert.ToUInt32(args[2]);
 			arguments.BitsPerPixel = Math.Min(4, Math.Max(1, arguments.BitsPerPixel));
 
-			arguments.FirstCharacter = ' ';
-			arguments.LastCharacter = '~';
+			arguments.Glyphs = args[3];
 
 			return arguments;
 		}
